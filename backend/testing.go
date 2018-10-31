@@ -69,19 +69,31 @@ func TestWrapConfig(raw map[string]interface{}) hcl.Body {
 // TestBackend will test the functionality of a Backend. The backend is
 // assumed to already be configured. This will test state functionality.
 // If the backend reports it doesn't support multi-state by returning the
-// error ErrNamedStatesNotSupported, then it will not test that.
+// error ErrWorkspacesNotSupported, then it will not test that.
 func TestBackendStates(t *testing.T, b Backend) {
 	t.Helper()
 
+	noDefault := false
+	if _, err := b.StateMgr(DefaultStateName); err != nil {
+		if err == ErrDefaultWorkspaceNotSupported {
+			noDefault = true
+		} else {
+			t.Fatalf("error: %v", err)
+		}
+	}
+
 	workspaces, err := b.Workspaces()
-	if err == ErrNamedStatesNotSupported {
-		t.Logf("TestBackend: workspaces not supported in %T, skipping", b)
-		return
+	if err != nil {
+		if err == ErrWorkspacesNotSupported {
+			t.Logf("TestBackend: workspaces not supported in %T, skipping", b)
+			return
+		}
+		t.Fatalf("error: %v", err)
 	}
 
 	// Test it starts with only the default
-	if len(workspaces) != 1 || workspaces[0] != DefaultStateName {
-		t.Fatalf("should only have default to start: %#v", workspaces)
+	if !noDefault && (len(workspaces) != 1 || workspaces[0] != DefaultStateName) {
+		t.Fatalf("should only default to start: %#v", workspaces)
 	}
 
 	// Create a couple states
@@ -190,11 +202,14 @@ func TestBackendStates(t *testing.T, b Backend) {
 		// we determined that named stated are supported earlier
 		workspaces, err := b.Workspaces()
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("err: %s", err)
 		}
 
 		sort.Strings(workspaces)
 		expected := []string{"bar", "default", "foo"}
+		if noDefault {
+			expected = []string{"bar", "foo"}
+		}
 		if !reflect.DeepEqual(workspaces, expected) {
 			t.Fatalf("wrong workspaces list\ngot:  %#v\nwant: %#v", workspaces, expected)
 		}
@@ -230,16 +245,18 @@ func TestBackendStates(t *testing.T, b Backend) {
 
 	// Verify deletion
 	{
-		states, err := b.Workspaces()
-		if err == ErrWorkspacesNotSupported {
-			t.Logf("TestBackend: named states not supported in %T, skipping", b)
-			return
+		workspaces, err := b.Workspaces()
+		if err != nil {
+			t.Fatalf("err: %s", err)
 		}
 
-		sort.Strings(states)
+		sort.Strings(workspaces)
 		expected := []string{"bar", "default"}
-		if !reflect.DeepEqual(states, expected) {
-			t.Fatalf("bad: %#v", states)
+		if noDefault {
+			expected = []string{"bar"}
+		}
+		if !reflect.DeepEqual(workspaces, expected) {
+			t.Fatalf("wrong workspaces list\ngot:  %#v\nwant: %#v", workspaces, expected)
 		}
 	}
 }
